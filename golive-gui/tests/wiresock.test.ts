@@ -96,6 +96,23 @@ describe("WireSock no Windows", () => {
     expect(classifyWireSockActivationFailure(cancelado).message).toMatch(/administrador/);
   });
 
+  it("só culpa o driver com evidência de driver, não com erro do SCM nem log do cliente", () => {
+    // Genuíno: o cliente reclamando do driver NDIS.
+    expect(classifyWireSockActivationFailure({ stderr: "GOLIVE_WIRESOCK_DIRECT_ERROR: 1061 WireSock: NDIS filter driver not installed" }))
+      .toMatchObject({ kind: "driver", code: "WIRESOCK_DRIVER" });
+    expect(classifyWireSockActivationFailure({ stderr: "ndiswg service is not running" }))
+      .toMatchObject({ kind: "driver", code: "WIRESOCK_DRIVER" });
+    // 1061 = o serviço não aceita mensagens de controle agora (STOP_PENDING): é tempo, não
+    // driver — a mensagem antiga mandava reiniciar o Windows por causa de um stop atrasado.
+    const atrasado = classifyWireSockActivationFailure({ stderr: "GOLIVE_WIRESOCK_ERROR: STOP_TIMEOUT: servico=wiresock-client-service estado=StopPending Win32ExitCode=1061" });
+    expect(atrasado).toMatchObject({ kind: "timeout", code: "WIRESOCK_TIMEOUT" });
+    expect(atrasado.message).not.toMatch(/Reinicie o Windows/);
+    // Log JSON rotineiro do cliente (é o que o detalhe carrega com -log-level info).
+    const rotineiro = classifyWireSockActivationFailure({ stderr: '{"log_level":"error","message":"[TUN]: Failed to figure out the route to the VPN server"} {"log_level":"info","message":"filter initialized"}' });
+    expect(rotineiro).toMatchObject({ kind: "unknown", code: "WIRESOCK_UNKNOWN" });
+    expect(rotineiro.message).not.toMatch(/componente de rede/);
+  });
+
   it("explica a elevação que termina sem resultado", () => {
     expect(classifyWireSockActivationFailure({ stderr: "GOLIVE_WIRESOCK_DIRECT_ERROR: DIRECT_WORKER_TIMEOUT: sem resultado de ativacao" }))
       .toMatchObject({ kind: "timeout", code: "WIRESOCK_ELEVATION_TIMEOUT" });

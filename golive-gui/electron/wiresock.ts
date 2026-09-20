@@ -154,7 +154,10 @@ export function classifyWireSockActivationFailure(error: unknown): WireSockActiv
       message: "O Windows não autorizou a ativação do WireSock. Aceite a solicitação de administrador e tente novamente.",
     };
   }
-  if (/driver|ndiswg|ndisrd|filter|filtro|reboot|reinici|1061/.test(raw)) {
+  // Evidência de driver é o nome do driver/serviço ou a palavra "driver"/"reboot". `filter`
+  // e `filtro` saíram: em mensagem de erro real do WireSock elas não aparecem (só como
+  // `.filter()` no código) e o log JSON do cliente que entra no detalhe poderia trazê-las.
+  if (/driver|ndiswg|ndisrd|reboot|reinici/.test(raw)) {
     return {
       kind: "driver",
       code: "WIRESOCK_DRIVER",
@@ -162,7 +165,7 @@ export function classifyWireSockActivationFailure(error: unknown): WireSockActiv
     };
   }
   if (!/wiresock_direct|direct_exited|direct_failed|processo direto/.test(raw) &&
-    /stop_timeout|timeout|timed out|tempo limite|stop_pending|pendente|1053/.test(raw)) {
+    /stop_timeout|timeout|timed out|tempo limite|stop_pending|pendente|1053|1061/.test(raw)) {
     return {
       kind: "timeout",
       code: "WIRESOCK_TIMEOUT",
