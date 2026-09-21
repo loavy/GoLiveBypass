@@ -54,4 +54,4 @@ Resultado: concluído sem erros.
 
 ## Commit
 
-Commit final: `5ec19a0` (`test: strengthen discovery diagnostics assertions`). Sem push/publicação.
+Commit das correções de teste/relatório: `00a8372` (`test: strengthen discovery diagnostics assertions`). Sem push/publicação.
