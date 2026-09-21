@@ -344,6 +344,13 @@ function isUsableEmbeddedLinuxExecutable(filePath: string, sha256: string): bool
         return false;
     }
 }
+export function embeddedLinuxAssetSha256(name: EmbeddedLinuxAssetName): string {
+    return EMBEDDED_LINUX_ASSETS[name].sha256;
+}
+
+export function isValidEmbeddedLinuxAsset(name: EmbeddedLinuxAssetName, filePath: string): boolean {
+    return isUsableEmbeddedLinuxExecutable(filePath, EMBEDDED_LINUX_ASSETS[name].sha256);
+}
 
 function ensureEmbeddedLinuxRuntimeDirectory(directory: string): string {
     const resolved = path.resolve(directory);

@@ -126,8 +126,8 @@ function requiredFilesForPlatform(platform: NodeJS.Platform = process.platform, 
     if (platform === "win32") files.push(resolvePlatformHelperRelativePath(platform, arch));
     return files;
 }
-function findLinuxNetnsLauncher(): string {
-    const candidates = [
+export function findLinuxNetnsLauncher(preferredCandidates?: string[], materializeDirectory = VPN_DATA_DIR): string {
+    const candidates = preferredCandidates ?? [
         join(__dirname, "bin", "linux-x64", "netns-launcher"),
         join(__dirname, "goLiveBypass", "bin", "linux-x64", "netns-launcher"),
         resolve(__dirname, "../../src/userplugins/goLiveBypass/bin/linux-x64/netns-launcher"),
@@ -138,13 +138,21 @@ function findLinuxNetnsLauncher(): string {
     for (const candidate of candidates) {
         try {
             const stat = lstatSync(candidate);
-            if (stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && (stat.mode & 0o111) !== 0 && (stat.mode & 0o022) === 0)
+            if (
+                stat.isFile() &&
+                !stat.isSymbolicLink() &&
+                stat.size > 0 &&
+                (stat.mode & 0o111) !== 0 &&
+                (stat.mode & 0o022) === 0 &&
+                proton.isValidEmbeddedLinuxAsset("netns-launcher", candidate)
+            ) {
                 return resolve(candidate);
+            }
         } catch {
             // try the next known package location
         }
     }
-    try { return proton.materializeEmbeddedLinuxAsset("netns-launcher", VPN_DATA_DIR); } catch {}
+    try { return proton.materializeEmbeddedLinuxAsset("netns-launcher", materializeDirectory); } catch {}
     throw new Error("O launcher Linux do namespace não foi encontrado no pacote do plugin.");
 }
 async function installFlatpakNetnsLauncher(flatpakSpawn: string, pkexec: string, launcher: string, uid: number): Promise<string> {
