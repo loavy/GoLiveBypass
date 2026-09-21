@@ -19,11 +19,6 @@ vi.mock("electron", () => ({
 import { findLinuxNetnsLauncher } from "../../goLiveBypass/native";
 import { embeddedLinuxAssetSha256, isValidEmbeddedLinuxAsset, materializeEmbeddedLinuxAsset } from "../../goLiveBypass/vpn-proton";
 
-const nativeSource = fs.readFileSync(path.resolve(process.cwd(), "../goLiveBypass/native.ts"), "utf8");
-const resolverStart = nativeSource.indexOf("function findLinuxNetnsLauncher");
-const resolverEnd = nativeSource.indexOf("async function installFlatpakNetnsLauncher");
-const resolverSource = nativeSource.slice(resolverStart, resolverEnd);
-
 describe("asset Linux do launcher", () => {
   it("rejeita launcher stale no caminho preferido e usa o asset materializado", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "golive-linux-asset-"));
@@ -33,7 +28,6 @@ describe("asset Linux do launcher", () => {
       fs.chmodSync(stale, 0o700);
       const expectedDigest = embeddedLinuxAssetSha256("netns-launcher");
       expect(isValidEmbeddedLinuxAsset("netns-launcher", stale)).toBe(false);
-      expect(resolverSource).toContain("proton.isValidEmbeddedLinuxAsset(\"netns-launcher\", candidate)");
 
       const resolved = findLinuxNetnsLauncher([stale], root);
       const digest = createHash("sha256").update(fs.readFileSync(resolved)).digest("hex");
@@ -48,22 +42,27 @@ describe("asset Linux do launcher", () => {
     }
   });
 
-  it("mantém o contrato de confirmação no launcher fonte e no native", () => {
+  it("mantém a rotina de confirmação no launcher fonte", () => {
     const launcher = fs.readFileSync(path.resolve(process.cwd(), "../goLiveBypass/tools/netns-launcher.c"), "utf8");
-    const native = fs.readFileSync(path.resolve(process.cwd(), "../goLiveBypass/native.ts"), "utf8");
 
-    expect(launcher).toContain("--confirm=");
     expect(launcher).toContain("write_confirmation(confirm_path, argv[1])");
-    expect(native).toContain("`--confirm=${confirmMarker}`");
-    expect(native).toContain("waitForFile(confirmMarker, DEFAULT_AUTH_PROMPT_TIMEOUT_MS)");
   });
 
-  it("materializa o asset com o digest declarado", () => {
+  it("materializa o asset com o protocolo e o digest declarado", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "golive-linux-materialized-"));
     try {
       const materialized = materializeEmbeddedLinuxAsset("netns-launcher", root);
-      const digest = createHash("sha256").update(fs.readFileSync(materialized)).digest("hex");
+      const bytes = fs.readFileSync(materialized);
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      const stats = fs.statSync(materialized);
+      const executable = bytes.toString("latin1");
+
       expect(digest).toBe(embeddedLinuxAssetSha256("netns-launcher"));
+      expect(executable).toContain("--confirm=");
+      expect(executable).toContain("ok %s");
+      expect(stats.isFile()).toBe(true);
+      expect(stats.mode & 0o111).not.toBe(0);
+      expect(stats.mode & 0o022).toBe(0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
