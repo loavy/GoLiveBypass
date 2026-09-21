@@ -6,6 +6,8 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [2.0.10-beta-1] - 2026-09-21
+
 ### v2: correções e limites validados
 
 - O launcher Linux on-disk agora rejeita binários stale/incompatíveis pelo contrato e SHA-256 do asset embutido; quando necessário, o fluxo materializa novamente o `netns-launcher` distribuído.
