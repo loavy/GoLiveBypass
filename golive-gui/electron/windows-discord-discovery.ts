@@ -44,6 +44,7 @@ export interface WindowsDiscoveryRawBlock<Row> {
   rows: Row[];
   truncated: boolean;
   errorCode?: string;
+  errorDetail?: string;
 }
 
 export interface WindowsDiscoveryRaw {
@@ -60,13 +61,13 @@ export interface WindowsDiscoveryCandidate {
   exePath: string;
   detectedBy: DiscoverySource;
 }
-
 export interface WindowsDiscoverySnapshot {
   installs: WindowsDiscoveryCandidate[];
   capturedAtMs: number;
   stale?: boolean;
   collectionFailed: boolean;
   sourceFailure?: string;
+  sourceFailureDetail?: string;
 }
 
 export interface WindowsDiscoveryEnvironment {
@@ -322,14 +323,54 @@ elseif ($registryTruncated) { $registryBlock['errorCode'] = 'UNINSTALL_LIMIT' }
 } | ConvertTo-Json -Compress -Depth 6
 `;
 
+const WINDOWS_DISCOVERY_ERROR_DETAIL_MAX = 96;
+
 export class WindowsDiscoveryCollectionError extends Error {
   readonly errorCode: string;
+  readonly errorDetail?: string;
 
-  constructor(errorCode: string) {
+  constructor(errorCode: string, errorDetail?: string) {
     super(errorCode);
     this.name = "WindowsDiscoveryCollectionError";
     this.errorCode = errorCode;
+    this.errorDetail = errorDetail;
   }
+}
+
+function sanitizeDiscoveryErrorDetail(error: unknown): string | undefined {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : "";
+  const firstLine = message.split(/\r?\n/, 1)[0]?.trim();
+  if (!firstLine) return undefined;
+  const sanitized = firstLine
+    .replace(/(?:[A-Za-z]:[\\/]|\\\\|\/)[^\r\n]*/g, "[path]")
+    .replace(/[,;]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return sanitized.slice(0, WINDOWS_DISCOVERY_ERROR_DETAIL_MAX);
+}
+
+function classifyWindowsDiscoveryError(error: unknown): {
+  errorCode: string;
+  errorDetail?: string;
+} {
+  const record = typeof error === "object" && error !== null
+    ? error as Record<string, unknown>
+    : {};
+  const code = record.code;
+  if (code === "ENOENT" || (typeof record.syscall === "string" && record.syscall.startsWith("spawn"))) {
+    return { errorCode: "POWERSHELL_SPAWN", errorDetail: sanitizeDiscoveryErrorDetail(error) };
+  }
+  if (code === "ETIMEDOUT" || code === "ETIME" || record.killed === true || record.timedOut === true) {
+    return { errorCode: "POWERSHELL_TIMEOUT", errorDetail: sanitizeDiscoveryErrorDetail(error) };
+  }
+  if (typeof code === "number" || (typeof code === "string" && /^\d+$/.test(code))) {
+    return { errorCode: "POWERSHELL_EXIT", errorDetail: sanitizeDiscoveryErrorDetail(error) };
+  }
+  return { errorCode: "POWERSHELL_EXIT", errorDetail: sanitizeDiscoveryErrorDetail(error) };
 }
 
 function defaultWindowsDiscoveryPowerShellRunner(file: string, args: readonly string[]): string {
@@ -387,8 +428,9 @@ export function collectWindowsDiscoveryPowerShell(
   let stdout: string;
   try {
     stdout = runner("powershell.exe", windowsDiscoveryPowerShellArgs());
-  } catch {
-    throw new WindowsDiscoveryCollectionError("POWERSHELL_EXIT");
+  } catch (error) {
+    const failure = classifyWindowsDiscoveryError(error);
+    throw new WindowsDiscoveryCollectionError(failure.errorCode, failure.errorDetail);
   }
   return parseWindowsDiscoveryStdout(stdout);
 }
@@ -399,8 +441,9 @@ export async function collectWindowsDiscoveryPowerShellAsync(
   let stdout: string;
   try {
     stdout = await runner("powershell.exe", windowsDiscoveryPowerShellArgs());
-  } catch {
-    throw new WindowsDiscoveryCollectionError("POWERSHELL_EXIT");
+  } catch (error) {
+    const failure = classifyWindowsDiscoveryError(error);
+    throw new WindowsDiscoveryCollectionError(failure.errorCode, failure.errorDetail);
   }
   return parseWindowsDiscoveryStdout(stdout);
 }
@@ -414,15 +457,18 @@ function asRows(value: unknown): unknown[] | null {
   if (value === undefined || value === null) return null;
   return [value];
 }
+
 export interface WindowsDiscoveryCollectionHealth {
   collectionFailed: boolean;
   sourceFailure?: string;
+  sourceFailureDetail?: string;
 }
 
 export function summarizeWindowsDiscoveryCollection(
   raw: WindowsDiscoveryRaw,
 ): WindowsDiscoveryCollectionHealth {
   const sourceFailures: string[] = [];
+  const sourceFailureDetails: string[] = [];
   let collectionFailed = false;
   for (const [source, block] of [["process", raw.process], ["registry", raw.registry]] as const) {
     const code = block.errorCode;
@@ -433,14 +479,18 @@ export function summarizeWindowsDiscoveryCollection(
     if (isError) {
       collectionFailed = true;
       sourceFailures.push(`${source}:${code || block.status}`);
+      const detail = sanitizeDiscoveryErrorDetail(block.errorDetail);
+      if (detail) sourceFailureDetails.push(`${source}:${detail}`);
     } else if (block.truncated || boundedLimit) {
       sourceFailures.push(`${source}:${code || (source === "process" ? "PROCESS_LIMIT" : "UNINSTALL_LIMIT")}`);
     }
   }
   const sourceFailure = sourceFailures.join(",");
+  const sourceFailureDetail = sourceFailureDetails.join(",");
   return {
     collectionFailed,
     ...(sourceFailure ? { sourceFailure } : {}),
+    ...(sourceFailureDetail ? { sourceFailureDetail } : {}),
   };
 }
 
@@ -470,6 +520,9 @@ function parseBlock<Row>(
   };
   if (typeof value.errorCode === "string" && value.errorCode.trim()) {
     result.errorCode = value.errorCode.trim();
+  }
+  if (typeof value.errorDetail === "string" && value.errorDetail.trim()) {
+    result.errorDetail = sanitizeDiscoveryErrorDetail(value.errorDetail);
   }
   return result;
 }
@@ -979,16 +1032,20 @@ export function mergeWindowsDiscoveryCandidates(
   }
   return merged;
 }
-function failedWindowsDiscoveryRaw(errorCode: string): WindowsDiscoveryRaw {
+function failedWindowsDiscoveryRaw(errorCode: string, errorDetail?: string): WindowsDiscoveryRaw {
+  const detail = errorDetail ? { errorDetail } : {};
   return {
     schema: 1,
-    process: { status: "error", rows: [], truncated: false, errorCode },
-    registry: { status: "error", rows: [], truncated: false, errorCode },
+    process: { status: "error", rows: [], truncated: false, errorCode, ...detail },
+    registry: { status: "error", rows: [], truncated: false, errorCode, ...detail },
   };
 }
 
-function discoveryErrorCode(error: unknown): string {
-  return error instanceof WindowsDiscoveryCollectionError ? error.errorCode : "POWERSHELL_EXIT";
+function discoveryFailure(error: unknown): { errorCode: string; errorDetail?: string } {
+  if (error instanceof WindowsDiscoveryCollectionError) {
+    return { errorCode: error.errorCode, errorDetail: error.errorDetail };
+  }
+  return classifyWindowsDiscoveryError(error);
 }
 
 function assembleWindowsDiscoverySnapshot(
@@ -1010,6 +1067,7 @@ function assembleWindowsDiscoverySnapshot(
     capturedAtMs,
     collectionFailed: health.collectionFailed,
     sourceFailure: health.sourceFailure,
+    sourceFailureDetail: health.sourceFailureDetail,
   };
 }
 
@@ -1026,7 +1084,8 @@ export function assembleWindowsDiscoverySnapshotFromRaw(
 }
 
 export function failedWindowsDiscoveryRawFor(error: unknown): WindowsDiscoveryRaw {
-  return failedWindowsDiscoveryRaw(discoveryErrorCode(error));
+  const failure = discoveryFailure(error);
+  return failedWindowsDiscoveryRaw(failure.errorCode, failure.errorDetail);
 }
 
 export function collectWindowsDiscoverySnapshot(
@@ -1039,7 +1098,8 @@ export function collectWindowsDiscoverySnapshot(
   try {
     raw = deps.collectPowerShell();
   } catch (error) {
-    raw = failedWindowsDiscoveryRaw(discoveryErrorCode(error));
+    const failure = discoveryFailure(error);
+    raw = failedWindowsDiscoveryRaw(failure.errorCode, failure.errorDetail);
   }
   return assembleWindowsDiscoverySnapshot(raw, env, deps, capturedAtMs, roots);
 }
@@ -1080,6 +1140,7 @@ function copySnapshot(snapshot: WindowsDiscoverySnapshot, stale: boolean): Windo
     stale,
     collectionFailed: snapshot.collectionFailed,
     sourceFailure: snapshot.sourceFailure,
+    sourceFailureDetail: snapshot.sourceFailureDetail,
   };
 }
 

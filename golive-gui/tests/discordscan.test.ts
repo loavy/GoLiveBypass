@@ -118,4 +118,13 @@ describe("discordscan — contratos de segurança do diagnóstico", () => {
     expect(recent).not.toContain("Segredo");
     expect(recent).not.toContain("D:\\Jogos");
   });
+  it("não reemite raiz idêntica durante uma leitura em cache", () => {
+    const raiz = "C:\\CacheHit\\Discord";
+
+    scanRaiz(raiz, true, "Discord");
+    scanRaiz(raiz, true, "Discord");
+
+    const recent = logger.getRecent();
+    expect((recent.match(/scan\.raiz/g) ?? []).length).toBe(1);
+  });
 });

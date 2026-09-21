@@ -3,6 +3,7 @@ import path from "path";
 import {
   buildWindowsDiscoveryPowerShell,
   collectWindowsDiscoveryPowerShell,
+  WindowsDiscoveryCollectionError,
   collectWindowsDiscoveryPowerShellAsync,
   collectWindowsDiscoverySnapshot,
   createWindowsDiscoveryCache,
@@ -106,6 +107,64 @@ function shortcutDeps(
 }
 
 describe("discovery Windows puro", () => {
+  it("preserva timeout do runner com codigo estavel e detalhe sanitizado", async () => {
+    const erro = Object.assign(
+      new Error("Command failed: C:\\Users\\segredo\\AppData\\Local\\Temp\\runner.js"),
+      { code: "ETIMEDOUT", killed: true },
+    );
+
+    let capturado: unknown;
+    try {
+      await collectWindowsDiscoveryPowerShellAsync(async () => {
+        throw erro;
+      });
+    } catch (error) {
+      capturado = error;
+    }
+
+    expect(capturado).toBeInstanceOf(WindowsDiscoveryCollectionError);
+    const detalhe = (capturado as WindowsDiscoveryCollectionError).errorDetail;
+    expect(detalhe).toBeTruthy();
+    expect(detalhe.length).toBeLessThanOrEqual(96);
+    expect(detalhe).not.toContain("C:\\Users\\segredo");
+    expect(detalhe).not.toContain("runner.js");
+    expect(detalhe).not.toContain(" at ");
+  });
+  it("classifica saída não-zero como exit sem vazar caminho", async () => {
+    const erro = Object.assign(new Error("Command failed C:\\Users\\segredo\\powershell.ps1"), { code: 7 });
+
+    await expect(collectWindowsDiscoveryPowerShellAsync(async () => {
+      throw erro;
+    })).rejects.toMatchObject({
+      errorCode: "POWERSHELL_EXIT",
+      errorDetail: "Command failed [path]",
+    });
+  });
+
+
+  it("classifica spawn ENOENT e preserva candidatos filesystem", () => {
+    const root = "C:\\Program Files";
+    const executable = `${root}\\Discord\\app-1.0.10\\Discord.exe`;
+    const fs = fakeFs([executable]);
+    const install: WindowsDiscordInstall = {
+      appDir: path.win32.dirname(executable),
+      resources: path.win32.join(path.win32.dirname(executable), "resources"),
+      exePath: executable,
+    };
+    const snapshot = collectWindowsDiscoverySnapshot({ ProgramFiles: root }, {
+      ...registryDeps(fs, [install]),
+      collectPowerShell: () => {
+        throw Object.assign(new Error("spawn powershell.exe ENOENT /home/segredo"), { code: "ENOENT" });
+      },
+    }, 123);
+
+    expect(snapshot.installs).toHaveLength(1);
+    expect(snapshot.sourceFailure).toContain("POWERSHELL_SPAWN");
+    expect(snapshot.sourceFailure).not.toContain("nenhum");
+    expect(snapshot.sourceFailureDetail).toContain("process:spawn powershell.exe ENOENT [path]");
+    expect(snapshot.sourceFailureDetail).not.toContain("/home/segredo");
+  });
+
   it("gera roots Windows determinísticos, deduplica envs e não bloqueia sem LOCALAPPDATA", () => {
     const env: WindowsDiscoveryEnvironment = {
       LOCALAPPDATA: "C:\\Users\\A\\AppData\\Local",

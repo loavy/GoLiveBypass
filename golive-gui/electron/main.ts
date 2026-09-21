@@ -287,7 +287,10 @@ const windowsDiscoveryCache = createWindowsDiscoveryCache({
   nowMs: () => Date.now(),
   readEnv: readWindowsDiscoveryEnvironment,
   rootsForEnv: rootsForEnvironment,
-  collectFresh: (env, roots) => collectWindowsDiscoverySnapshot(env, windowsDiscoveryCollectors, Date.now(), roots),
+  collectFresh: (env, roots) => {
+    logWindowsDiscoveryRoots(env, roots);
+    return collectWindowsDiscoverySnapshot(env, windowsDiscoveryCollectors, Date.now(), roots);
+  },
   collectFreshAsync: (env, roots) => collectFreshWindowsDiscoveryAsync(env, roots),
 });
 
@@ -297,6 +300,7 @@ async function collectFreshWindowsDiscoveryAsync(
   env: WindowsDiscoveryEnvironment,
   roots: string[],
 ): Promise<WindowsDiscoverySnapshot> {
+  logWindowsDiscoveryRoots(env, roots);
   let raw: WindowsDiscoveryRaw;
   try {
     raw = await collectWindowsDiscoveryPowerShellAsync();
@@ -889,9 +893,17 @@ type WindowsDiscoveryReadOptions = {
   forceRefresh?: boolean;
   allowStale?: boolean;
 };
-function logWindowsDiscoveryHealth(sourceFailure: string | undefined): void {
+function logWindowsDiscoveryHealth(
+  sourceFailure: string | undefined,
+  sourceFailureDetail?: string,
+): void {
   if (!sourceFailure) return;
   const boundedCodes = new Set(["PROCESS_LIMIT", "UNINSTALL_LIMIT"]);
+  const detailBySource = new Map<string, string>();
+  for (const item of sourceFailureDetail?.split(",") ?? []) {
+    const match = /^(process|registry):(.*)$/.exec(item.trim());
+    if (match?.[1] && match[2]) detailBySource.set(match[1], match[2]);
+  }
   const details = sourceFailure.split(",").slice(0, 2);
   for (const detail of details) {
     const match = /^(process|registry):([A-Za-z0-9_]+)$/.exec(detail.trim());
@@ -903,12 +915,16 @@ function logWindowsDiscoveryHealth(sourceFailure: string | undefined): void {
     discordscan.scanFonte(origem, status, {
       truncated: isBounded,
       errorCode: /^[A-Z][A-Z0-9_]*$/.test(code) ? code : undefined,
+      errorDetail: detailBySource.get(origem),
     });
   }
 }
 
-function logWindowsDiscoveryRoots(env: WindowsDiscoveryEnvironment): void {
-  for (const root of rootsForEnvironment(env)) {
+function logWindowsDiscoveryRoots(
+  env: WindowsDiscoveryEnvironment,
+  roots = rootsForEnvironment(env),
+): void {
+  for (const root of roots) {
     for (const flavour of ALL_APPS) {
       const rootPath = path.win32.join(root, flavour);
       discordscan.scanRaiz(rootPath, diskFs.existsSync(rootPath), flavour);
@@ -920,7 +936,6 @@ function logWindowsDiscoveryRoots(env: WindowsDiscoveryEnvironment): void {
 function getWinDiscordInstalls(options: WindowsDiscoveryReadOptions = {}): DiscordInstall[] {
   const env = readWindowsDiscoveryEnvironment();
   discordscan.scanInicio("win32", env.LOCALAPPDATA);
-  logWindowsDiscoveryRoots(env);
   const snapshot = withNoAsar(() => windowsDiscoveryCache.read(options));
   return installsFromWindowsSnapshot(snapshot);
 }
@@ -962,7 +977,7 @@ function getDiscordInstalls(options: WindowsDiscoveryReadOptions = {}): DiscordI
 }
 
 function installsFromWindowsSnapshot(snapshot: WindowsDiscoverySnapshot): DiscordInstall[] {
-  logWindowsDiscoveryHealth(snapshot.sourceFailure);
+  logWindowsDiscoveryHealth(snapshot.sourceFailure, snapshot.sourceFailureDetail);
   for (const candidate of snapshot.installs) {
     discordscan.scanCandidato(candidate.flavour, candidate.detectedBy);
   }
@@ -981,7 +996,6 @@ function installsFromWindowsSnapshot(snapshot: WindowsDiscoverySnapshot): Discor
 async function getWindowsDiscordInstallsAsync(options: WindowsDiscoveryReadOptions = {}): Promise<DiscordInstall[]> {
   const env = readWindowsDiscoveryEnvironment();
   discordscan.scanInicio("win32", env.LOCALAPPDATA);
-  logWindowsDiscoveryRoots(env);
   const snapshot = await windowsDiscoveryCache.readAsync(options);
   return installsFromWindowsSnapshot(snapshot);
 }
