@@ -47,6 +47,7 @@ vi.mock("child_process", () => ({
 import {
   classifyProtonError,
   generateManualProtonConfig,
+  generateOptimalProtonConfig,
   generateProtonRouteCatalog,
   loginProton,
   type ProtonOptimizationProgress,
@@ -227,6 +228,40 @@ describe("catálogo de rotas do plugin", () => {
     expect(result.success).toBe(false);
     expect(result.routes).toBeUndefined();
     expect(state.args).toEqual([]);
+  });
+});
+
+describe("otimização do plugin", () => {
+  it("no Windows não exige HTTPS do Discord para medir uma rota", async () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    try {
+      state.json = {
+        success: true,
+        server: "US#8",
+        country: "US",
+        city: "New York",
+        tier: "Free",
+        load: 12,
+        score: 3.5,
+        pingMs: 44,
+        downloadMbps: 28,
+        uploadMbps: 8,
+        speedTested: 6,
+        speedSucceeded: 6,
+      };
+
+      const result = await generateOptimalProtonConfig(dataDirWithSession(), {
+        username: "conta",
+        speedTest: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(state.args).toEqual(expect.arrayContaining(["-speed-test", "-progress-json"]));
+      expect(state.args).not.toContain("-require-discord");
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
   });
 });
 

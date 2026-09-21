@@ -6,6 +6,12 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Plugin Windows: a otimização não bloqueia pela prova HTTP do Discord
+
+- Correção da #325: a otimização automática do plugin colocava `-require-discord` no helper apenas no Windows. Cada candidata que já havia formado o túnel e respondido ao endpoint de medição também precisava alcançar `https://discord.com/api/v9/gateway` em até 6 s; uma falha transitória desse probe descartava a rota e podia reprovar as doze finalistas como “nenhum candidato respondeu pelo túnel”.
+- Agora o plugin mantém o preflight genérico de WireGuard + HTTPS e a medição de download/upload como critérios da rota. A prova HTTP específica do Discord permanece diagnóstica, portanto não impede a otimização nem a seleção manual.
+- Cobertura: `golive-gui/tests/plugin-proton-runtime.test.ts` executa o runtime como Windows e confirma que a chamada de speed test não envia `-require-discord`. A GUI já usava o preflight genérico; o standalone permanece pausado e não participa deste fluxo.
+
 ## [2.0.9] - 2026-09-19
 
 ### GUI Windows: a ativação elevada deixa de ser reportada como problema de perfil

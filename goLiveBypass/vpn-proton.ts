@@ -1360,8 +1360,8 @@ export async function generateOptimalProtonConfig(
         const args = ["-username", requestedUsername, "-session-file", sessionFileToUse, "-output", staging, "-json", "-ipv6", "-exclude-countries", "BR"];
         if (options.autoPing !== false) args.push("-auto-ping");
         if (options.speedTest) {
+            // A prova HTTPS do Discord é diagnóstica: não pode reprovar uma rota que já formou o túnel e mediu tráfego.
             args.push("-speed-test", "-progress-json");
-            if (process.platform === "win32") args.push("-require-discord");
         }
         if (options.freeOnly !== false) args.push("-free-only");
         if (options.country?.trim()) args.push("-countries", options.country.trim());
