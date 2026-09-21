@@ -122,6 +122,7 @@ describe("discordscan — contratos de segurança do diagnóstico", () => {
     const raiz = "C:\\CacheHit\\Discord";
 
     scanRaiz(raiz, true, "Discord");
+    logger.info("discord", "teste.marcador", {});
     scanRaiz(raiz, true, "Discord");
 
     const recent = logger.getRecent();

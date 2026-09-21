@@ -123,6 +123,7 @@ describe("discovery Windows puro", () => {
     }
 
     expect(capturado).toBeInstanceOf(WindowsDiscoveryCollectionError);
+    expect((capturado as WindowsDiscoveryCollectionError).errorCode).toBe("POWERSHELL_TIMEOUT");
     const detalhe = (capturado as WindowsDiscoveryCollectionError).errorDetail;
     expect(detalhe).toBeTruthy();
     expect(detalhe.length).toBeLessThanOrEqual(96);
