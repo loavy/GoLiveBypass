@@ -16,9 +16,9 @@ test("initialize é serializado e não assume lock vivo de outra instância", ()
 });
 
 test("aquisição limpa probes somente depois de obter ownership", () => {
-    assert.match(start, /owner = await this\.acquireOwnership\(\);\s+await this\.cleanupStaleProbes\(this\.probePath/);
+    assert.match(start, /owner = await this\.acquireOwnership\(existing\);\s+await this\.cleanupStaleProbes\(this\.probePath/);
     const normalActivation = start.slice(start.indexOf("this.state = \"preparing\""));
-    assert.doesNotMatch(normalActivation.slice(0, normalActivation.indexOf("owner = await this.acquireOwnership()")), /cleanupStaleProbes/);
+    assert.doesNotMatch(normalActivation.slice(0, normalActivation.indexOf("owner = await this.acquireOwnership(existing)")), /cleanupStaleProbes/);
 });
 
 test("escrita do owner é atômica e não usa arquivo parcialmente criado", () => {

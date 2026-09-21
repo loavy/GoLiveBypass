@@ -2078,6 +2078,11 @@ export class PluginVpnController {
             this.discordPid = null;
             return { success: true, state: this.state, message: this.statusMessage() };
         }
+        if (inspection.reliable && inspection.active && !inspection.owned) {
+            const reason = inspection.reason || "WireSock externo está ativo; não será interrompido.";
+            this.blockExternal(reason);
+            return { success: false, state: this.state, error: this.externalReason || undefined };
+        }
         this.state = "stopping";
         const cleanup = await windows.stopOwnedWireSock(this.serviceConfigPath, this.options.log, inspection);
         if (!cleanup.stopped) {
