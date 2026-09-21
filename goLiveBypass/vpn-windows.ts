@@ -775,10 +775,24 @@ async function inspectWireSockUntilReliable(configPath: string, guiConfigPath?: 
     return inspection;
 }
 
+/**
+ * Reconsulta uma leitura incompleta com orçamento fixo, reutilizando a worker persistente
+ * usada pelas inspeções assíncronas. Uma resposta não confiável nunca vira `active` e, se
+ * continuar incompleta, o chamador permanece em recuperação manual.
+ */
+export async function inspectWireSockUntilReliableAsync(configPath: string, guiConfigPath?: string): Promise<WireSockInspection> {
+    let inspection = await inspectWireSockAsync(configPath, guiConfigPath);
+    for (let attempt = 1; !inspection.reliable && attempt < WIRESOCK_INSPECTION_RETRIES; attempt++) {
+        await wait(500);
+        inspection = await inspectWireSockAsync(configPath, guiConfigPath);
+    }
+    return inspection;
+}
 
-export async function stopOwnedWireSock(configPath: string, log: WireSockLogger): Promise<WireSockCleanupResult> {
+
+export async function stopOwnedWireSock(configPath: string, log: WireSockLogger, confirmedInspection?: WireSockInspection): Promise<WireSockCleanupResult> {
     if (!isWindows()) return { stopped: true, servicesResidual: [], processResidual: [], networkLockReset: false, dnsCleared: false, dnsFlushed: false };
-    const initial = inspectWireSock(configPath);
+    const initial = confirmedInspection ?? inspectWireSock(configPath);
     if (!initial.reliable) {
         const error = initial.reason || UNKNOWN_WIRESOCK_STATE;
         log("warn", "limpeza adiada porque o estado do WireSock é desconhecido", { motivo: error });

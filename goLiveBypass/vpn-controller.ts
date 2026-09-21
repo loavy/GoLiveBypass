@@ -192,7 +192,8 @@ function isUnknownWireSockInspection(inspection: windows.WireSockInspection): bo
 }
 
 function unknownWireSockMessage(inspection: windows.WireSockInspection): string {
-    return inspection.reason || "Não foi possível confirmar o estado do WireSock; estado desconhecido.";
+    const reason = safeDiagnosticDetail(inspection.reason || "Não foi possível confirmar o estado do WireSock; estado desconhecido.", 300);
+    return `${reason} Tente Restaurar rede novamente; nenhuma VPN será interrompida sem prova de ownership.`;
 }
 
 function processAlive(pid: number): boolean {
@@ -437,7 +438,7 @@ export class PluginVpnController {
         try {
             await this.migrateGuiState();
             const owner = this.readOwner();
-            const inspection = this.inspectWindows();
+            const inspection = await windows.inspectWireSockUntilReliableAsync(this.serviceConfigPath, this.guiConfigPath);
             if (isUnknownWireSockInspection(inspection)) {
                 this.initialized = false;
                 this.state = "recovery_required";
@@ -1692,7 +1693,7 @@ export class PluginVpnController {
             this.externalReason = "A VPN do plugin nesta versão está disponível somente no Windows x64.";
             return { success: false, state: this.state, error: this.externalReason };
         }
-        const existing = this.inspectWindows();
+        const existing = await windows.inspectWireSockUntilReliableAsync(this.serviceConfigPath, this.guiConfigPath);
         if (isUnknownWireSockInspection(existing)) {
             this.state = "recovery_required";
             this.externalReason = null;
@@ -1743,7 +1744,7 @@ export class PluginVpnController {
         let started = false;
         try {
             await this.migrateGuiState();
-            owner = await this.acquireOwnership();
+            owner = await this.acquireOwnership(existing);
             await this.cleanupStaleProbes(this.probePath ? [this.probePath] : []);
             const settings = this.settings();
             if (settings.mode === "proton") {
@@ -2025,16 +2026,35 @@ export class PluginVpnController {
         if (!isSupportedWindowsArchitecture(process.platform, process.arch)) return { success: false, state: "blocked_external", error: "A VPN do plugin nesta versão exige Windows x64." };
         this.stopWatchdog();
         this.diagnosticGeneration++;
-        const inspection = this.inspectWindows();
+        let inspection = this.inspectWindows();
+        const owner = this.readOwner();
         if (isUnknownWireSockInspection(inspection)) {
+            const ownershipProven = Boolean(owner && owner.configPath === this.serviceConfigPath && !this.isLiveForeignOwner(owner));
+            if (!ownershipProven) {
+                this.state = "recovery_required";
+                this.externalReason = null;
+                const error = unknownWireSockMessage(inspection);
+                this.setDiagnostic("ownership", false, error);
+                this.options.log("warn", "restauração adiada porque owner/configuração próprios não foram confirmados", { mode: "diagnostic-only" });
+                return { success: false, state: this.state, error };
+            }
+            inspection = await windows.inspectWireSockUntilReliableAsync(this.serviceConfigPath, this.guiConfigPath);
+            if (isUnknownWireSockInspection(inspection)) {
+                this.state = "recovery_required";
+                this.externalReason = null;
+                const error = unknownWireSockMessage(inspection);
+                this.setDiagnostic("ownership", false, error);
+                this.options.log("warn", "restauração adiada porque o estado do WireSock continuou desconhecido", { mode: "diagnostic-only" });
+                return { success: false, state: this.state, error };
+            }
+        }
+        if (inspection.active && inspection.owned && (!owner || owner.configPath !== this.serviceConfigPath || this.isLiveForeignOwner(owner))) {
             this.state = "recovery_required";
-            this.externalReason = null;
-            const error = unknownWireSockMessage(inspection);
-            this.setDiagnostic("wireguard", false, error);
-            this.options.log("warn", "restauração adiada porque o estado do WireSock é desconhecido", { mode: "diagnostic-only" });
+            const error = "WireSock próprio detectado sem owner/configuração confirmados; ação manual necessária.";
+            this.setDiagnostic("ownership", false, error);
+            this.options.log("warn", "restauração recusada sem prova de owner/configuração próprios", { mode: "diagnostic-only" });
             return { success: false, state: this.state, error };
         }
-        const owner = this.readOwner();
         const needsInactiveCleanup = Boolean(owner)
             || this.state === "preparing"
             || this.state === "starting"
@@ -2058,17 +2078,14 @@ export class PluginVpnController {
             this.discordPid = null;
             return { success: true, state: this.state, message: this.statusMessage() };
         }
-        if (inspection.reliable && inspection.active && !inspection.owned) {
-            this.blockExternal(inspection.reason || "WireSock externo está ativo; não será interrompido.");
-            return { success: false, state: this.state, error: this.externalReason || undefined };
-        }
         this.state = "stopping";
-        const cleanup = await windows.stopOwnedWireSock(this.serviceConfigPath, this.options.log);
+        const cleanup = await windows.stopOwnedWireSock(this.serviceConfigPath, this.options.log, inspection);
         if (!cleanup.stopped) {
             await this.removeProbe({ sweep: false });
             this.state = "recovery_required";
-            this.setDiagnostic("wireguard", false, cleanup.error || "limpeza incompleta");
-            return { success: false, state: this.state, error: cleanup.error || "Não foi possível restaurar a rede." };
+            const error = errorMessage(cleanup.error || "limpeza incompleta");
+            this.setDiagnostic("wireguard", false, error);
+            return { success: false, state: this.state, error: error || "Não foi possível restaurar a rede." };
         }
         await this.removeProbe({ sweep: true });
         if (owner && !await this.releaseOwnership(owner)) {
@@ -2648,11 +2665,11 @@ export class PluginVpnController {
         });
     }
 
-    private async acquireOwnership(): Promise<VpnOwnerRecord> {
+    private async acquireOwnership(knownInspection?: windows.WireSockInspection): Promise<VpnOwnerRecord> {
         return this.withOwnerMutex(async () => {
             const existing = this.readOwner();
             const ownerFileExists = fs.existsSync(this.ownerPath);
-            const inspection = this.inspectWindows();
+            const inspection = knownInspection ?? this.inspectWindows();
             if (isUnknownWireSockInspection(inspection)) throw new Error(unknownWireSockMessage(inspection));
             // Conflito gerenciado (GUI/pool do GoLiveBypass) não bloqueia a reserva do lock:
             // a retomada acontece depois, no start, já sob posse desta instância. WireSock
