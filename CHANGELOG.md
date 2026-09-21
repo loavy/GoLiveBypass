@@ -6,6 +6,16 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### v2: correções e limites validados
+
+- O launcher Linux on-disk agora rejeita binários stale/incompatíveis pelo contrato e SHA-256 do asset embutido; quando necessário, o fluxo materializa novamente o `netns-launcher` distribuído.
+- O tee de console da GUI protege `log`, `info`, `warn` e `error` contra falhas EIO/EPIPE. O registro no ring/file continua best-effort mesmo quando o destino de arquivo falha.
+- A descoberta Windows preserva diagnóstico limitado para timeout (`POWERSHELL_TIMEOUT`), spawn e saída não-zero, mantém candidatos de filesystem quando uma fonte falha e não reemite raízes em cache-hit dentro da janela de dedupe.
+- A inspeção WireSock usa retry limitado e recuperação fail-closed: somente `owner.lock`/configuração do plugin comprovados autorizam limpeza própria; recurso externo é preservado. Estado desconhecido permanece em recuperação manual e nunca vira `active` por inferência.
+- Regressões executadas: `npm test -- tests/proton-ui.test.ts tests/plugin-update-ui.test.ts` em `golive-gui/` — 2 arquivos, 26 testes aprovados; `node tests/test-plugin-autostart-loop.mjs` na raiz — 4 testes aprovados, 0 falhas.
+- A #277 permanece aberta/inconclusiva: não há reprodução causal v2 para mídia, não foi adicionado reload automático e probes de rota/handshake continuam diagnósticos; estes testes não provam geografia de egress nem mídia real.
+- A #307 é um relato da arquitetura legada e não tem suporte no v2; não houve portabilidade do caminho legado.
+
 ### Plugin Windows: a otimização não bloqueia pela prova HTTP do Discord
 
 - Correção da #325: a otimização automática do plugin colocava `-require-discord` no helper apenas no Windows. Cada candidata que já havia formado o túnel e respondido ao endpoint de medição também precisava alcançar `https://discord.com/api/v9/gateway` em até 6 s; uma falha transitória desse probe descartava a rota e podia reprovar as doze finalistas como “nenhum candidato respondeu pelo túnel”.
