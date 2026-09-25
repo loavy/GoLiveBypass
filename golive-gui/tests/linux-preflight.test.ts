@@ -480,7 +480,12 @@ describe("preflight Linux", () => {
     fs.writeFileSync(path.join(bin, "pacman"), "#!/bin/sh\nif [ \"$1\" = \"-Qu\" ]; then exit 1; fi\nprintf '%s\\n' \"$*\" > \"$GOLIVE_TEST_PACMAN_LOG\"\nfor c in wg ip curl; do printf '#!/bin/sh\\nexit 0\\n' > \"$GOLIVE_TEST_BIN/$c\"; chmod +x \"$GOLIVE_TEST_BIN/$c\"; done\n");
     for (const file of ["sudo", "pacman"]) fs.chmodSync(path.join(bin, file), 0o755);
     const log = path.join(root, "pacman.args");
-    const script = path.resolve(process.cwd(), "../standalone/golivebypass-standalone.sh");
+    // This case simulates Arch even when the test runner is Fedora/Debian.
+    const release = path.join(root, "os-release");
+    fs.writeFileSync(release, 'ID=arch\nNAME="Arch Linux"\n');
+    const script = path.join(root, "standalone.sh");
+    const source = fs.readFileSync(path.resolve(process.cwd(), "../standalone/golivebypass-standalone.sh"), "utf8");
+    fs.writeFileSync(script, source.replaceAll('/etc/os-release', release));
     const run = spawnSync("/bin/bash", [script, "--ensure-dependencies"], {
       env: { ...process.env, GOLIVE_GUI: "1", PATH: bin, GOLIVE_TEST_BIN: bin, GOLIVE_TEST_PACMAN_LOG: log },
       encoding: "utf8",

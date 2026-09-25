@@ -1,4 +1,3 @@
-import { gsap } from 'gsap';
 import { protonMeasurementText } from './proton-measurement';
 import { renderProtonCountryFlag } from './proton-flags';
 import { ProtonRouteSelect, type ProtonRouteOption } from './proton-route-select';
@@ -38,8 +37,10 @@ declare global {
   interface Window {
     api: {
       platform: string;
+      getPathForFile: (file: File) => string;
       activate: () => Promise<void>;
       deactivate: () => Promise<void>;
+      quitApp: () => Promise<void>;
       restoreInternet: () => Promise<{ ok: boolean; error?: string; residual?: string[]; dnsOk?: boolean; httpsOk?: boolean }>;
       getStatus: () => Promise<string>;
       getLinuxPreflight: () => Promise<{
@@ -209,9 +210,7 @@ function applyPlatformCopy() {
 
   const closeHint = document.getElementById('closeHint');
   if (closeHint) {
-    closeHint.textContent = isMac
-      ? 'Fechar a janela esconde o app na barra de menus, junto do relógio — para reverter tudo, saia pelo ícone de lá.'
-      : 'Fechar a janela esconde o app na bandeja, junto do relógio — para reverter tudo, saia pelo ícone de lá.';
+    closeHint.textContent = 'Fechar a janela mantém o app em segundo plano. Para desativar e encerrar, use Configurações → Sair do GoLiveBypass.';
   }
 }
 
@@ -271,6 +270,9 @@ const vpnDropZone = document.getElementById('vpnDropZone') as HTMLElement | null
 const vpnDropFeedback = document.getElementById('vpnDropFeedback') as HTMLElement | null;
 
 let currentState = 'INACTIVE';
+let statusGeneration = 0;
+let bypassActionInFlight = false;
+let bypassActionLabel = '';
 let linuxPreflight: Awaited<ReturnType<Window['api']['getLinuxPreflight']>> = null;
 
 // ---------------------------------------------------------------------------
@@ -304,6 +306,18 @@ function closeSettingsDialog() {
 settingsBtn?.addEventListener('click', openSettingsDialog);
 settingsBackdrop?.addEventListener('click', closeSettingsDialog);
 settingsClose?.addEventListener('click', closeSettingsDialog);
+const quitAppBtn = document.getElementById('quitAppBtn') as HTMLButtonElement | null;
+quitAppBtn?.addEventListener('click', async () => {
+  quitAppBtn.disabled = true;
+  quitAppBtn.textContent = 'Encerrando e restaurando a rede…';
+  try {
+    await window.api.quitApp();
+  } catch (error) {
+    quitAppBtn.disabled = false;
+    quitAppBtn.textContent = 'Sair do GoLiveBypass';
+    alert('Não foi possível encerrar: ' + String(error));
+  }
+});
 
 document.querySelectorAll<HTMLButtonElement>('.theme-opt[data-theme-opt]').forEach((opt) => {
   opt.addEventListener('click', () => {
@@ -316,11 +330,15 @@ document.querySelectorAll<HTMLButtonElement>('.theme-opt[data-theme-opt]').forEa
 
 // O warning do bypass ativo faz o conteudo crescer; a janela e fixa, entao reportamos a altura
 // necessaria para o main process redimensionar e nada ficar cortado.
+let resizeScheduled = false;
 function fitWindowToContent() {
+  if (resizeScheduled) return;
+  resizeScheduled = true;
   // Espera o layout apos hidden/details: sem rAF a medicao ainda ve a altura antiga
   // (Personalizado expandia e a janela nunca encolhia ao voltar para Tor/Gratuitas).
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      resizeScheduled = false;
       const container = document.querySelector('.container') as HTMLElement | null;
       if (!container) return;
       const height = Math.ceil(container.getBoundingClientRect().height + 1);
@@ -330,9 +348,12 @@ function fitWindowToContent() {
 }
 
 async function updateStatus() {
+  const generation = ++statusGeneration;
   try {
-    if (isLinux) linuxPreflight = await window.api.getLinuxPreflight();
+    const preflight = isLinux ? await window.api.getLinuxPreflight() : null;
     const status = await window.api.getStatus();
+    if (generation !== statusGeneration) return;
+    linuxPreflight = preflight;
     currentState = status;
     
     statusIndicator.className = 'status-indicator';
@@ -400,7 +421,7 @@ async function updateStatus() {
         toggleBtn.disabled = true;
         btnText.innerText = 'Selecione uma Configuração';
         statusText.innerText = currentVpnMode === 'proton'
-          ? 'Conecte sua conta ProtonVPN abaixo para ativar'
+          ? 'Conecte sua conta ProtonVPN para ativar'
           : 'Importe uma configuração WireGuard (.conf) abaixo para ativar';
         statusTag.textContent = 'Configuração necessária';
         statusTag.classList.add('tag--warn');
@@ -417,7 +438,9 @@ async function updateStatus() {
       }
     }
   } catch (err) {
+    if (generation !== statusGeneration) return;
     console.error(err);
+    toggleBtn.disabled = true;
     statusText.innerText = 'Erro ao buscar status';
     statusTag.textContent = 'Erro';
     statusTag.classList.add('tag--danger');
@@ -427,23 +450,28 @@ async function updateStatus() {
     restoreInternetBtn.hidden = window.api.platform !== 'win32' || currentState === 'ACTIVE';
   }
   if (protonOptimizationInFlight || protonManualSelectionInFlight) toggleBtn.disabled = true;
+  if (bypassActionInFlight) {
+    toggleBtn.disabled = true;
+    toggleBtn.classList.add('loading');
+    btnText.innerText = bypassActionLabel;
+  }
   // Depois de mudar o estado, ajusta a janela ao novo tamanho do conteudo.
   fitWindowToContent();
 }
 
 toggleBtn.addEventListener('click', async () => {
-  if (protonOptimizationInFlight || protonManualSelectionInFlight) return;
+  if (bypassActionInFlight || protonOptimizationInFlight || protonManualSelectionInFlight) return;
+  const deactivate = currentState === 'ACTIVE';
+  bypassActionInFlight = true;
+  ++statusGeneration;
+  bypassActionLabel = deactivate ? 'Desativando…' : 'Ativando…';
+  btnText.innerText = bypassActionLabel;
   toggleBtn.disabled = true;
   toggleBtn.classList.add('loading');
 
   try {
-    if (currentState === 'ACTIVE') {
-      try {
-        await window.api.deactivate();
-      } catch (err) {
-        updateStatus();
-        throw err;
-      }
+    if (deactivate) {
+      await window.api.deactivate();
     } else {
       if (!hasSelectedConf) {
         const msg = currentVpnMode === 'proton'
@@ -461,13 +489,18 @@ toggleBtn.addEventListener('click', async () => {
     }
   } catch (err) {
     alert('Erro: ' + err);
+  } finally {
+    bypassActionInFlight = false;
+    await updateStatus();
   }
-
-  await updateStatus();
 });
 
 restoreInternetBtn?.addEventListener('click', async () => {
-  if (protonOptimizationInFlight || protonManualSelectionInFlight) return;
+  if (bypassActionInFlight || protonOptimizationInFlight || protonManualSelectionInFlight) return;
+  bypassActionInFlight = true;
+  ++statusGeneration;
+  bypassActionLabel = 'Restaurando internet…';
+  toggleBtn.disabled = true;
   restoreInternetBtn.disabled = true;
   const original = restoreInternetBtn.textContent;
   restoreInternetBtn.textContent = 'Restaurando internet…';
@@ -482,8 +515,10 @@ restoreInternetBtn?.addEventListener('click', async () => {
   } catch (err) {
     alert('Não foi possível restaurar a internet: ' + (err instanceof Error ? err.message : String(err)));
   } finally {
+    bypassActionInFlight = false;
     restoreInternetBtn.textContent = original || 'Restaurar internet';
     restoreInternetBtn.disabled = false;
+    await updateStatus();
   }
 });
 
@@ -499,6 +534,10 @@ fitWindowToContent();
 async function refreshVersion() {
   try {
     const ver = await window.api.getVersion();
+    if (ver.endsWith(' local') && autoUpdateToggle) {
+      autoUpdateToggle.disabled = true;
+      autoUpdateToggle.closest('label')?.setAttribute('title', 'Build local: atualizações remotas desativadas para preservar estas correções.');
+    }
     if (appVersionEl && ver) {
       appVersionEl.textContent = `v${ver}`;
     }
@@ -615,9 +654,6 @@ let protonMeasurementTotal = 0;
 let protonMeasurementTested = 0;
 const protonMeasurementRows = new Map<string, HTMLElement>();
 const protonOptimizeIcon = protonOptimizeBtn?.querySelector<SVGElement>('.icon-refresh') ?? null;
-const protonOptimizeMotion = gsap.matchMedia();
-let protonOptimizeLoading = false;
-let protonOptimizeLoadingTween: gsap.core.Tween | null = null;
 let protonManualCandidates = new Map<string, ManualRouteCandidate>();
 let protonRouteCatalogCandidates = new Map<string, ManualRouteCandidate>();
 let protonRouteDiscoveryRenderScheduled = false;
@@ -792,7 +828,7 @@ function setManualSelectionBusy(busy: boolean) {
 
 
 async function selectManualProtonRoute(server: string, previousSelection?: string) {
-  if (protonManualSelectionInFlight || protonRouteDiscoveryInFlight || !protonManualMeasurementId || !server) return;
+  if (bypassActionInFlight || protonManualSelectionInFlight || protonRouteDiscoveryInFlight || !protonManualMeasurementId || !server) return;
   const candidate = mergedProtonManualCandidates().get(server);
   if (!candidate || !isManualRouteActionable(candidate)) return;
   const restoreSelection = previousSelection
@@ -1569,38 +1605,16 @@ protonCountrySelect?.setOnChange((selectedValue) => {
 });
 
 function startProtonOptimizeAnimation(): void {
-  stopProtonOptimizeAnimation();
-  protonOptimizeLoading = true;
-  protonOptimizeMotion.add(
-    { reduceMotion: '(prefers-reduced-motion: reduce)' },
-    (context) => {
-      if (!protonOptimizeLoading || context.conditions?.reduceMotion || !protonOptimizeIcon) return;
-      protonOptimizeLoadingTween = gsap.to(protonOptimizeIcon, {
-        rotation: 360,
-        duration: 1.45,
-        ease: 'none',
-        repeat: -1,
-        transformOrigin: '50% 50%',
-      });
-      return () => {
-        protonOptimizeLoadingTween?.kill();
-        protonOptimizeLoadingTween = null;
-      };
-    },
-  );
+  protonOptimizeIcon?.classList.add('proton-optimize-spinning');
 }
 
 function stopProtonOptimizeAnimation(): void {
-  protonOptimizeLoading = false;
-  protonOptimizeMotion.revert();
-  protonOptimizeLoadingTween?.kill();
-  protonOptimizeLoadingTween = null;
-  if (protonOptimizeIcon) gsap.set(protonOptimizeIcon, { rotation: 0 });
+  protonOptimizeIcon?.classList.remove('proton-optimize-spinning');
 }
 
 
 async function optimizeProtonRoute(onStartup = false, speedTest = true) {
-  if (protonOptimizationInFlight || protonRouteDiscoveryInFlight || protonManualSelectionInFlight || !isProtonAuthenticated) return;
+  if (bypassActionInFlight || protonOptimizationInFlight || protonRouteDiscoveryInFlight || protonManualSelectionInFlight || !isProtonAuthenticated) return;
   startProtonOptimizeAnimation();
 
   protonOptimizationInFlight = true;
@@ -1702,6 +1716,7 @@ async function optimizeProtonRoute(onStartup = false, speedTest = true) {
     setProtonFeedback((err as Error)?.message || String(err), 'err');
     await updateStatus();
   } finally {
+    protonOptimizationInFlight = false;
     stopProtonOptimizeAnimation();
     protonOptimizationRequestId = '';
     if (tabProton) tabProton.disabled = false;
@@ -1812,7 +1827,7 @@ function setVpnDropFeedback(message: string, type: 'ok' | 'bad') {
 }
 
 async function importDroppedWgFile(file: File) {
-  const filePath = (file as File & { path?: string }).path;
+  const filePath = window.api.getPathForFile(file);
   if (!filePath) {
     setVpnDropFeedback('Não foi possível ler este arquivo. Use o botão Importar.', 'bad');
     return;
@@ -2148,7 +2163,16 @@ bugSubmit?.addEventListener('click', async () => {
       if (bugSuccessLink) {
         if (r.issueUrl) {
           const n = r.issueNumber ? ` #${r.issueNumber}` : '';
-          bugSuccessLink.innerHTML = `<a href="${r.issueUrl}" target="_blank" rel="noopener">Ver issue${n} no GitHub →</a>`;
+          const link = document.createElement('a');
+          try {
+            const url = new URL(r.issueUrl);
+            if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password) throw new Error('URL inválida');
+            link.href = url.href;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = `Ver issue${n} no GitHub →`;
+            bugSuccessLink.replaceChildren(link);
+          } catch { bugSuccessLink.textContent = ''; }
         } else {
           bugSuccessLink.textContent = '';
         }

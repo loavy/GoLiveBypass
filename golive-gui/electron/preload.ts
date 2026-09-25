@@ -1,9 +1,11 @@
-import { ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { ProtonOptimizationProgress } from './proton';
-(window as any).api = {
+contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   activate: () => ipcRenderer.invoke('activate'),
   deactivate: () => ipcRenderer.invoke('deactivate'),
+  quitApp: () => ipcRenderer.invoke('quit-app'),
   restoreInternet: () => ipcRenderer.invoke('restore-internet'),
   getStatus: () => ipcRenderer.invoke('get-status'),
   getLinuxPreflight: () => ipcRenderer.invoke('get-linux-preflight'),
@@ -21,6 +23,7 @@ import type { ProtonOptimizationProgress } from './proton';
   testWgConf: () => ipcRenderer.invoke('test-wg-conf'),
   startLogWatch: () => ipcRenderer.invoke('start-log-watch'),
   stopLogWatch: () => ipcRenderer.invoke('stop-log-watch'),
+  copyDiagnostic: (payload: { status: string; note?: string }) => ipcRenderer.invoke('copy-diagnostic', payload),
   getDiagnostic: (payload: { status: string; note?: string }) =>
     ipcRenderer.invoke('get-diagnostic', payload),
   openBugReport: (payload: { status: string; note?: string; title?: string }) =>
@@ -33,9 +36,9 @@ import type { ProtonOptimizationProgress } from './proton';
   onDevLogWindowClosed: (callback: () => void) => {
     ipcRenderer.on('dev-log-window-closed', () => callback());
   },
-  onRefreshStartup: (callback: () => void) => ipcRenderer.on('refresh-startup', callback),
-  onRefreshAutoUpdate: (callback: () => void) => ipcRenderer.on('refresh-auto-update', callback),
-  onRefreshStatus: (callback: () => void) => ipcRenderer.on('refresh-status', callback),
+  onRefreshStartup: (callback: () => void) => { ipcRenderer.on('refresh-startup', () => callback()); },
+  onRefreshAutoUpdate: (callback: () => void) => { ipcRenderer.on('refresh-auto-update', () => callback()); },
+  onRefreshStatus: (callback: () => void) => { ipcRenderer.on('refresh-status', () => callback()); },
   resizeWindow: (height: number) => ipcRenderer.send('resize-window', height),
   setTheme: (theme: string) => ipcRenderer.send('set-theme', theme),
   reportBug: (payload: { title: string; description: string; includeLogs: boolean }) => ipcRenderer.invoke('report-bug', payload),
@@ -45,7 +48,7 @@ import type { ProtonOptimizationProgress } from './proton';
   loginProton: (payload: { username: string; password?: string; twoFactorCode?: string }) =>
     ipcRenderer.invoke('login-proton', payload),
   onProtonCaptchaStatus: (callback: (status: string) => void) =>
-    ipcRenderer.on('proton-captcha-status', (_event, status: string) => callback(status)),
+    { ipcRenderer.on('proton-captcha-status', (_event, status: string) => callback(status)); },
   logoutProton: () => ipcRenderer.invoke('logout-proton'),
   optimizeProtonRoute: (options?: { country?: string; freeOnly?: boolean; autoPing?: boolean; speedTest?: boolean; reuseMeasured?: boolean; refreshOnStartup?: boolean; requestId?: string }) =>
     ipcRenderer.invoke('optimize-proton-route', options),
@@ -59,16 +62,16 @@ import type { ProtonOptimizationProgress } from './proton';
   onProtonOptimizationProgress: (callback: (progress: ProtonOptimizationProgress & { requestId: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: ProtonOptimizationProgress & { requestId: string }) => callback(progress);
     ipcRenderer.on('proton-optimization-progress', listener);
-    return () => ipcRenderer.removeListener('proton-optimization-progress', listener);
+    return () => { ipcRenderer.removeListener('proton-optimization-progress', listener); };
   },
   onProtonRouteDiscoveryProgress: (callback: (progress: ProtonOptimizationProgress & { requestId: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: ProtonOptimizationProgress & { requestId: string }) => callback(progress);
     ipcRenderer.on('proton-route-discovery-progress', listener);
-    return () => ipcRenderer.removeListener('proton-route-discovery-progress', listener);
+    return () => { ipcRenderer.removeListener('proton-route-discovery-progress', listener); };
   },
   getProtonSettings: () => ipcRenderer.invoke('get-proton-settings'),
   getProtonPlan: (options?: { force?: boolean }) => ipcRenderer.invoke('get-proton-plan', options),
   setProtonSettings: (settings: any) => ipcRenderer.invoke('set-proton-settings', settings),
   onProtonFailoverNotice: (callback: (notice: { message: string }) => void) =>
-    ipcRenderer.on('proton-failover-notice', (_event, notice: { message: string }) => callback(notice)),
-};
+    { ipcRenderer.on('proton-failover-notice', (_event, notice: { message: string }) => callback(notice)); },
+});

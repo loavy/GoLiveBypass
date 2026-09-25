@@ -2,15 +2,16 @@ import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
+  ipcMain as electronIpcMain,
   Menu,
   nativeImage,
   Tray,
   shell,
   clipboard,
+  screen,
 } from "electron";
 import path, { dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { createRequire } from "module";
 import { homedir } from "os";
 import fs from "fs";
@@ -45,6 +46,9 @@ import { PROTON_CAPTCHA_IPC_CHANNEL, isAllowedProtonCaptchaNavigation, parseProt
 import { observeRouteDiagnostic } from "./route-diagnostics";
 import { decideRouteProof, maskedIP, type RouteProbeResult } from "./route-proof";
 import { prepareDiscordScopeProbes } from "./discord-scope-proof";
+
+import { createUiIpc, isTrustedUiSender, protectUiWindow, isAllowedExternalUrl } from "./ui-security";
+import { isLocalBuild } from './local-build';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -328,6 +332,17 @@ const MAC_HELPER_PROCESSES = [
 
 let mainWindow: BrowserWindow | null = null;
 let logWindow: BrowserWindow | null = null;
+function uiPageUrl(page: string): string {
+  if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
+    return new URL(page, process.env.VITE_DEV_SERVER_URL.replace(/\/?$/, "/")).href;
+  }
+  return pathToFileURL(path.join(__dirname, "../dist", page)).href;
+}
+const ipcMain = createUiIpc(electronIpcMain, (event) => isTrustedUiSender(event, [
+  { window: mainWindow, url: uiPageUrl(process.env.VITE_DEV_SERVER_URL && !app.isPackaged ? '' : 'index.html') },
+  { window: logWindow, url: uiPageUrl('logs.html') },
+]));
+
 let suppressLogClosedNotify = false;
 let tray: Tray | null = null;
 let updaterController: UpdaterController | null = null;
@@ -381,9 +396,10 @@ function createWindow() {
     resizable: false,
     icon: loadAsset('icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      nodeIntegration: true,
-      contextIsolation: false,
+      preload: path.join(__dirname, "preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
     },
     autoHideMenuBar: true,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
@@ -401,10 +417,7 @@ function createWindow() {
   // a pessoa nao ve para onde esta indo, e nao tem como voltar. Vale para o botao do Discord,
   // que ja existia, e para os creditos.
   mainWindow.setTitle(`GoLiveBypass v${app.getVersion()}`);
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//.test(url)) void shell.openExternal(url);
-    return { action: "deny" };
-  });
+  protectUiWindow(mainWindow, (url) => shell.openExternal(url));
 
   mainWindow.on("close", (event) => {
     if (quitting || isQuittingForUpdate()) return;
@@ -414,7 +427,7 @@ function createWindow() {
     mainWindow?.hide();
   });
 
-  if (process.env.VITE_DEV_SERVER_URL) {
+  if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
@@ -422,7 +435,7 @@ function createWindow() {
 }
 
 function loadLogsPage(win: BrowserWindow) {
-  if (process.env.VITE_DEV_SERVER_URL) {
+  if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
     const base = process.env.VITE_DEV_SERVER_URL.replace(/\/?$/, "/");
     win.loadURL(`${base}logs.html`);
   } else {
@@ -473,9 +486,10 @@ function openLogWindow() {
     resizable: true,
     icon: loadAsset("icon.png"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      nodeIntegration: true,
-      contextIsolation: false,
+      preload: path.join(__dirname, "preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
     },
     autoHideMenuBar: true,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
@@ -485,10 +499,7 @@ function openLogWindow() {
   });
 
   logWindow.setTitle("GoLiveBypass — Logs");
-  logWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//.test(url)) void shell.openExternal(url);
-    return { action: "deny" };
-  });
+  protectUiWindow(logWindow, (url) => shell.openExternal(url));
 
   logWindow.on("closed", () => {
     logWindow = null;
@@ -667,6 +678,7 @@ async function toggleFromTray() {
 }
 
 async function quitApp() {
+  if (quitting) return;
   // O restore (reverter o bypass) vive no before-quit, que cobre Sair da bandeja, Cmd+Q no
   // Mac e o quit do app; aqui so disparamos a saida. A reversao corre sem travar o quit.
   quitting = true;
@@ -2901,7 +2913,8 @@ ipcMain.handle("restore-internet", async () => {
   });
 });
 ipcMain.handle("get-platform", () => (IS_LINUX ? "linux" : isMac ? "mac" : "windows"));
-ipcMain.handle("get-app-version", () => app.getVersion());
+ipcMain.handle("get-app-version", () => `${app.getVersion()}${isLocalBuild() ? ' local' : ''}`);
+ipcMain.handle("quit-app", () => quitApp());
 ipcMain.handle("get-status", async () => {
   if (IS_LINUX) return linuxStatus();
   return getStatus();
@@ -3129,10 +3142,12 @@ function readNetMode(): string {
 }
 
 export function saveAutoUpdate(enabled: boolean) {
+  if (isLocalBuild()) return;
   updateSharedSettings({ autoUpdate: enabled });
 }
 
 export function readAutoUpdate(): boolean {
+  if (isLocalBuild()) return false;
   try {
     const file = path.join(settingsDir(), "settings.json");
     if (!fs.existsSync(file)) return true;
@@ -3373,6 +3388,14 @@ ipcMain.handle("get-diagnostic", async (_event, payload: unknown) => {
   };
 });
 
+ipcMain.handle("copy-diagnostic", async (_event, payload: unknown) => {
+  const p = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const status = typeof p.status === "string" ? p.status : "UNKNOWN";
+  const note = typeof p.note === "string" ? p.note : "";
+  clipboard.writeText(await buildDiagnostic(status, note));
+  return true;
+});
+
 function readBugReportConfig(): { baseUrl: string; token: string } | null {
   // Prioridade: settings.json da pasta compartilhada, depois env do processo.
   // Sem os dois, o botao cai no form do GitHub (sem segredo embutido no binario).
@@ -3491,7 +3514,7 @@ ipcMain.handle("open-bug-report", async (_event, payload: unknown) => {
   if (apiCfg) {
     const posted = await postBugReportToApi(apiCfg, title, note, status);
     if (posted.ok) {
-      await shell.openExternal(posted.issueUrl);
+      if (isAllowedExternalUrl(posted.issueUrl)) await shell.openExternal(posted.issueUrl);
       return {
         ok: true,
         via: "api" as const,
@@ -3838,7 +3861,7 @@ async function solveProtonCaptcha(rawUrl: string, parent: BrowserWindow | null):
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      ipcMain.removeListener(PROTON_CAPTCHA_IPC_CHANNEL, onCaptchaResponse);
+      electronIpcMain.removeListener(PROTON_CAPTCHA_IPC_CHANNEL, onCaptchaResponse);
       captchaSession.removeListener("will-download", preventDownload);
       resolve(result);
       if (!captchaWindow.isDestroyed()) captchaWindow.destroy();
@@ -3858,7 +3881,7 @@ async function solveProtonCaptcha(rawUrl: string, parent: BrowserWindow | null):
         finish({ ok: false, code: "CAPTCHA_INVALID", message: "O CAPTCHA retornou uma resposta inválida. Tente novamente." });
       }
     };
-    ipcMain.on(PROTON_CAPTCHA_IPC_CHANNEL, onCaptchaResponse);
+    electronIpcMain.on(PROTON_CAPTCHA_IPC_CHANNEL, onCaptchaResponse);
 
     const timeout = setTimeout(() => {
       finish({ ok: false, code: "CAPTCHA_INVALID", message: "A verificação expirou. Inicie o login novamente." });
@@ -4477,7 +4500,8 @@ ipcMain.on("resize-window", (_event, height: unknown) => {
   if (!mainWindow || mainWindow.isDestroyed() || !Number.isFinite(h) || h <= 0) return;
   const [, contentH] = mainWindow.getContentSize();
   if (Math.abs(contentH - h) < 2) return;
-  mainWindow.setContentSize(MAIN_WINDOW_WIDTH, h);
+  const availableHeight = screen.getDisplayMatching(mainWindow.getBounds()).workAreaSize.height;
+  mainWindow.setContentSize(MAIN_WINDOW_WIDTH, Math.min(h, Math.max(360, availableHeight - 64)));
 });
 
 // O renderer avisa quando o tema muda para o overlay da barra de titulo

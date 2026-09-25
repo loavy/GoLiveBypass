@@ -2,6 +2,7 @@ import './style.css'
 
 const api = (window as any).api as {
   getStatus: () => Promise<string>;
+  copyDiagnostic: (payload: { status: string; note?: string }) => Promise<boolean>;
   startLogWatch: () => Promise<{ path: string }>;
   stopLogWatch: () => Promise<boolean>;
   getDiagnostic: (payload: { status: string; note?: string }) => Promise<{
@@ -36,13 +37,23 @@ const devHint = document.getElementById('devHint')!;
 const MAX_LOG_CHARS = 120_000;
 let currentStatus = 'UNKNOWN';
 
+let pendingLog = '';
+let flushScheduled = false;
 function appendLog(chunk: string) {
-  logConsole.textContent += chunk;
-  if (logConsole.textContent.length > MAX_LOG_CHARS) {
-    logConsole.textContent = logConsole.textContent.slice(-MAX_LOG_CHARS);
-  }
-  logConsole.scrollTop = logConsole.scrollHeight;
+  pendingLog = (pendingLog + chunk).slice(-MAX_LOG_CHARS);
+  if (flushScheduled || document.hidden) return;
+  flushScheduled = true;
+  requestAnimationFrame(() => {
+    flushScheduled = false;
+    const atBottom = logConsole.scrollHeight - logConsole.scrollTop - logConsole.clientHeight < 32;
+    logConsole.textContent = ((logConsole.textContent ?? '') + pendingLog).slice(-MAX_LOG_CHARS);
+    pendingLog = '';
+    if (atBottom) logConsole.scrollTop = logConsole.scrollHeight;
+  });
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && pendingLog) appendLog('');
+});
 
 async function refreshStatus() {
   try {
@@ -71,11 +82,10 @@ void (async () => {
 copyDiagBtn.addEventListener('click', async () => {
   copyDiagBtn.disabled = true;
   try {
-    const { text } = await api.getDiagnostic({
+    await api.copyDiagnostic({
       status: currentStatus,
       note: bugNoteInput.value,
     });
-    await navigator.clipboard.writeText(text);
     devHint.textContent = 'Diagnóstico copiado para a área de transferência.';
   } catch (err) {
     devHint.textContent = err instanceof Error ? err.message : String(err);

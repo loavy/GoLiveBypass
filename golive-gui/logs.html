@@ -4,14 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GoLiveBypass — Logs</title>
-    <script>
-      try {
-        var t = localStorage.getItem('golivebypass-theme');
-        document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
-      } catch (e) {
-        document.documentElement.dataset.theme = 'dark';
-      }
-    </script>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+    <script type="module" src="/src/theme.ts"></script>
   </head>
   <body class="logs-window">
     <div class="page-ambient" aria-hidden="true"></div>

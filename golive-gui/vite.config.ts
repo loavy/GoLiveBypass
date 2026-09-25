@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 
 export default defineConfig({
@@ -14,6 +13,14 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: 'local-ui-csp',
+      transformIndexHtml(html, context) {
+        return context.server
+          ? html.replace("connect-src 'none'", "connect-src 'self' ws://localhost:* ws://127.0.0.1:*")
+          : html;
+      },
+    },
     electron([
       {
         entry: 'electron/main.ts',
@@ -30,6 +37,12 @@ export default defineConfig({
       },
       {
         entry: 'electron/preload.ts',
+        vite: {
+          build: {
+            lib: { formats: ['cjs'] },
+            rolldownOptions: { external: ['electron'], output: { format: 'cjs', entryFileNames: 'preload.cjs' } },
+          },
+        },
         onstart(options) {
           options.reload()
         },
@@ -59,6 +72,5 @@ export default defineConfig({
         },
       },
     ]),
-    renderer(),
   ],
 })

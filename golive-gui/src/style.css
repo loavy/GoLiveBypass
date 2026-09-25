@@ -2,10 +2,10 @@
    GoLiveBypass — tema claro/escuro, tokens semânticos
    Base: ui-ux-pro-max (Dark Mode OLED + Inter, contraste 4.5:1)
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* System fonts: no external request or font download on startup. */
 
 :root {
-  --sans: 'Inter', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 
   /* forma */
@@ -20,13 +20,13 @@
   --t-med: 250ms;
 
   /* ============ tema claro (default) ============ */
-  --canvas: #F7F6F3;
+  --canvas: #F2F5FA;
   --surface: #FFFFFF;
   --surface-muted: #F1F0EE;
-  --ink: #2F3437;
-  --ink-strong: #111111;
-  --muted: #6E6C68;
-  --faint: #A8A29E;
+  --ink: #34415A;
+  --ink-strong: #152238;
+  --muted: #58677E;
+  --faint: #66758B;
   --line: #EAEAEA;
   --line-strong: #D9D9D7;
 
@@ -39,6 +39,7 @@
   --warn-line: #F0E3C4;
 
   --discord: #5865F2;
+  --accent-ink: #6044D1;
 
   /* botoes do bypass: tons leitosos (claros) com texto escuro correspondente */
   --go-bg: #CFE8D0;
@@ -54,15 +55,16 @@
 
 /* ============ tema escuro (OLED) ============ */
 html[data-theme='dark'] {
-  --canvas: #0F0F12;
-  --surface: #1A1A1F;
-  --surface-muted: #232329;
+  --accent-ink: #B7AAFF;
+  --canvas: #0D1422;
+  --surface: #141E30;
+  --surface-muted: #1C293F;
   --ink: #E6E6EA;
   --ink-strong: #F5F5F7;
   --muted: #A6A6B0;
-  --faint: #6F6F7A;
-  --line: #26262D;
-  --line-strong: #34343C;
+  --faint: #96A6BF;
+  --line: #27364E;
+  --line-strong: #36465F;
 
   --ok-bg: #16301B;
   --ok-ink: #7BC98C;
@@ -102,6 +104,12 @@ body {
   transition: background var(--t-med) var(--ease), color var(--t-med) var(--ease);
 }
 
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--discord);
+  outline-offset: 4px;
+}
+
 #app {
   position: relative;
   width: 100%;
@@ -132,8 +140,7 @@ body {
   height: 420px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(180, 166, 132, 0.12), transparent 70%);
-  animation: ambient-drift 26s var(--ease) infinite alternate;
-  will-change: transform;
+  /* Static illumination avoids continuous compositing while idle. */
 }
 
 html[data-theme='dark'] .page-ambient::before {
@@ -272,7 +279,7 @@ html[data-theme='dark'] .page-ambient::before {
   font-size: 13.5px;
   line-height: 1.6;
   color: var(--muted);
-  max-width: 30ch;
+  max-width: 48ch;
   margin: 0 auto;
 }
 
@@ -1134,7 +1141,7 @@ html[data-theme='dark'] .switch-row input:checked + .switch-track .switch-thumb 
 
 .proton-route-select__trigger:hover:not(:disabled),
 .proton-route-select.is-open .proton-route-select__trigger {
-  border-color: #8b74ff;
+  border-color: var(--accent-ink);
   background: color-mix(in srgb, #8b74ff 8%, var(--surface-muted));
 }
 
@@ -1474,7 +1481,7 @@ html[data-theme='dark'] .switch-row input:checked + .switch-track .switch-thumb 
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
-  color: #8b74ff;
+  color: var(--accent-ink);
   opacity: 0;
 }
 
@@ -1973,6 +1980,12 @@ body.logs-window {
   flex-direction: column;
   gap: 9px;
 }
+.settings-exit {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.settings-exit .theme-opt { min-height: 42px; }
+.settings-exit .settings-switch__hint { line-height: 1.5; }
 .settings-group__label {
   padding-left: 2px;
   color: var(--faint);
@@ -2196,7 +2209,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   font-size: 12.5px;
   line-height: 1.6;
   color: var(--muted);
-  max-width: 30ch;
+  max-width: 48ch;
 }
 .bug-success__link {
   margin-top: 10px;
@@ -2282,7 +2295,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
-  gap: 14px;
+  gap: 18px;
   width: 100%;
 }
 
@@ -2290,12 +2303,12 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 16px;
   min-width: 0;
-  padding: 14px;
+  padding: 24px;
   border: 1px solid var(--line-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  border-radius: 20px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--ok-bg) 55%, var(--surface)), var(--surface));
 }
 
 .connection-column {
@@ -2307,6 +2320,8 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   margin-top: 0;
   margin-bottom: 0;
   height: 100%;
+  padding: 22px;
+  border-radius: 20px;
 }
 
 .bypass-heading {
@@ -2320,7 +2335,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 .bypass-kicker {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
   line-height: 1.2;
@@ -2329,7 +2344,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 
 .bypass-title {
   color: var(--ink-strong);
-  font-size: 13px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -2337,13 +2352,13 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 .bypass-description {
   min-height: 31px;
   color: var(--muted);
-  font-size: 10.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.6;
   text-align: center;
 }
 
 .bypass-column .toggle-btn {
-  height: 46px;
+  height: 52px;
   padding: 0 14px;
   font-size: 13px;
   line-height: 1.15;
@@ -2363,8 +2378,8 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 
 .bypass-column .status-card #statusText {
   grid-column: 2;
-  font-size: 10.5px;
-  line-height: 1.25;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .bypass-column .status-card .status-tag {
@@ -2651,7 +2666,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   display: block;
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
   line-height: 1.2;
@@ -2671,7 +2686,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 }
 
 .vpn-mode-tab--active {
-  color: #9a86ff;
+  color: var(--accent-ink);
   border-color: rgba(139, 116, 255, 0.35);
 }
 
@@ -2722,7 +2737,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #9a86ff;
+  color: var(--accent-ink);
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 700;
@@ -2869,7 +2884,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   margin-bottom: 5px;
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
   line-height: 1;
@@ -3000,7 +3015,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 
 .vpn-drop-zone:hover,
 .vpn-drop-zone:focus-visible {
-  border-color: #9a86ff;
+  border-color: var(--accent-ink);
   background: rgba(139, 116, 255, 0.07);
   color: var(--ink);
 }
@@ -3011,9 +3026,9 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 }
 
 .vpn-drop-zone--active {
-  border-color: #9a86ff;
+  border-color: var(--accent-ink);
   background: rgba(139, 116, 255, 0.13);
-  color: #b0a2ff;
+  color: var(--accent-ink);
 }
 
 .vpn-drop-zone__icon {
@@ -3025,7 +3040,7 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   border: 1px solid rgba(139, 116, 255, 0.3);
   border-radius: 9px;
   background: rgba(139, 116, 255, 0.1);
-  color: #9a86ff;
+  color: var(--accent-ink);
 }
 
 .vpn-drop-zone__icon svg {
@@ -3083,8 +3098,8 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 
 .proton-btn--action:hover:not(:disabled) {
   background: rgba(139, 116, 255, 0.1);
-  border-color: #8b74ff;
-  color: #9a86ff;
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
 }
 
 .proton-hint {
@@ -3092,11 +3107,11 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
 }
 
 .proton-hint a {
-  color: #9a86ff;
+  color: var(--accent-ink);
 }
 
 .proton-hint a:hover {
-  color: #b0a2ff;
+  color: var(--accent-ink);
 }
 
 .proton-connected-view {
@@ -3139,4 +3154,13 @@ html[data-theme='dark'] .settings-switch input:checked + .switch-track .switch-t
   .proton-panel-copy {
     font-size: 10px;
   }
+}
+
+/* Only the busy icon moves; no JS animation runtime or idle ticker. */
+.proton-optimize-spinning {
+  animation: spin 1.45s linear infinite;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .proton-optimize-spinning { animation: none; }
 }

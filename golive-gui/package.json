@@ -21,7 +21,8 @@
     "build:linux": "npm run compile && electron-builder --linux AppImage --publish never",
     "publish:win": "npm run compile && electron-builder --win --x64 --publish always",
     "publish:mac": "npm run compile && electron-builder --mac --arm64 --publish always",
-    "publish:linux": "npm run compile && electron-builder --linux AppImage --publish always"
+    "publish:linux": "npm run compile && electron-builder --linux AppImage --publish always",
+    "build:local": "npm run compile && electron-builder --linux AppImage --win portable --x64 --publish never -c.extraMetadata.goliveLocalBuild=true -c.directories.output=dist-app/local -c.linux.artifactName='GoLiveBypass-local.${ext}' -c.portable.artifactName='GoLiveBypass-local.${ext}'"
   },
   "build": {
     "appId": "com.golivebypass.gui",
@@ -100,11 +101,9 @@
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vite-plugin-electron": "^1.1.1",
-    "vite-plugin-electron-renderer": "^1.0.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
-    "gsap": "^3.15.0"
+    "electron-updater": "^6.8.9"
   }
 }

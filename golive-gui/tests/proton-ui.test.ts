@@ -97,7 +97,7 @@ describe("controles Proton", () => {
     expect(source).toContain("window.api.selectProtonRoute({ measurementId: protonManualMeasurementId, server })");
     expect(source).toContain("toggleBtn.disabled = busy || protonOptimizationInFlight");
     expect(source).toContain("protonCloseMeasurementBtn.disabled = busy");
-    expect(source).toContain("if (protonOptimizationInFlight || protonManualSelectionInFlight) return;");
+    expect(source).toContain("if (bypassActionInFlight || protonOptimizationInFlight || protonManualSelectionInFlight) return;");
   });
   it("exibe skeleton, catálogo progressivo e preserva a rota manual salva", () => {
     const renderer = fs.readFileSync(path.resolve(process.cwd(), "src/main.ts"), "utf8");
@@ -221,13 +221,11 @@ describe("controles Proton", () => {
 
   it("anima apenas o ícone durante a medição e respeita reduced-motion", () => {
     const source = fs.readFileSync(path.resolve(process.cwd(), "src/main.ts"), "utf8");
-    expect(source).toContain("const protonOptimizeMotion = gsap.matchMedia();");
-    expect(source).toContain("protonOptimizeMotion.add");
-    expect(source).toContain("reduceMotion: '(prefers-reduced-motion: reduce)'");
-    expect(source).toContain("gsap.to(protonOptimizeIcon");
-    expect(source).toContain("stopProtonOptimizeAnimation();");
-    expect(source).toContain("protonOptimizeMotion.revert();");
-    expect(source).not.toContain("gsap.to(protonOptimizeBtn");
+    const css = fs.readFileSync(path.resolve(process.cwd(), "src/style.css"), "utf8");
+    expect(source).toContain("protonOptimizeIcon?.classList.add('proton-optimize-spinning')");
+    expect(source).toContain("protonOptimizeIcon?.classList.remove('proton-optimize-spinning')");
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.proton-optimize-spinning \{ animation: none;/);
+    expect(source).not.toContain("from 'gsap'");
   });
 
 

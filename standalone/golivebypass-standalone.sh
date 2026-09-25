@@ -2027,22 +2027,29 @@ flatpak_running_id() {
         | awk -v wanted="$wanted" '$0 == wanted { found=1; exit } END { exit found ? 0 : 1 }'
 }
 
-# Retorna o PID do processo dentro do sandbox. O child-pid é preferido porque é o
-# processo que herda o namespace de rede; o wrapper fica no host em alguns runtimes.
+# Electron/Zypak cria varias instancias Flatpak com o mesmo app ID. A primeira
+# linha pode ser o zygote em um namespace sem rede, e nao o cliente no tunel.
+# Verifique todos os candidatos antes de usar um PID como fallback de diagnostico.
 flatpak_pid_for_id() {
-    local wanted="${1:-}" pid="" columns
+    local wanted="${1:-}" pid="" columns candidates="" fallback=""
     [ -n "$wanted" ] && have flatpak || return 1
-    # `child-pid` existe nas versões atuais; o PID do wrapper é um fallback para
-    # instalações Flatpak mais antigas que ainda não expõem essa coluna.
     for columns in child-pid pid; do
-        pid="$(flatpak ps --columns="$columns,application" 2>/dev/null \
-            | awk -v wanted="$wanted" '$2 == wanted { print $1; exit }')"
-        case "$pid" in
-            ''|*[!0-9]*) continue ;;
-            *) printf '%s\n' "$pid"; return 0 ;;
-        esac
+        candidates="$(flatpak ps --columns="$columns,application" 2>/dev/null \
+            | awk -v wanted="$wanted" '$2 == wanted && $1 ~ /^[0-9]+$/ && $1 > 0 { print $1 }')"
+        [ -n "$candidates" ] || continue
+        for pid in $candidates; do
+            [ -n "$fallback" ] || fallback="$pid"
+            if discord_pid_in_netns_elevated "$pid"; then
+                printf '%s\n' "$pid"
+                return 0
+            fi
+        done
+        # child-pid e suportado e ja forneceu processos: nunca aceite o wrapper
+        # do host como prova alternativa de um child fora do namespace.
+        break
     done
-    return 1
+    [ -n "$fallback" ] || return 1
+    printf '%s\n' "$fallback"
 }
 
 flatpak_is_user_install() {
@@ -2341,7 +2348,7 @@ discord_pid_flav() {
 
 discord_pid_in_netns() {
     local pid="$1" identified="" pid_ns="" netns_ns=""
-    [ -n "$pid" ] || return 1
+    case "$pid" in ''|0|*[!0-9]*) return 1 ;; esac
     identified="$(ip netns identify "$pid" 2>/dev/null || true)"
     [ "$identified" = "$NETNS_NAME" ] && return 0
     # /run/netns/$NETNS_NAME e bind mount de nsfs (nunca symlink): readlink

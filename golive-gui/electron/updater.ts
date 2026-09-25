@@ -9,6 +9,7 @@
 // consulta nativa; o download continua sujeito ao canal e a verificacao do updater.
 
 import { app, dialog, BrowserWindow } from "electron";
+import { isLocalBuild } from './local-build';
 import {
   createWriteStream,
   existsSync,
@@ -569,6 +570,11 @@ export function setupUpdater(
   onStateChange: () => void = () => {},
 ): UpdaterController | null {
   stateChangeListener = onStateChange;
+
+  if (isLocalBuild()) {
+    console.log('[updater] build local: atualização remota desativada para preservar as correções em teste.');
+    return null;
+  }
 
   const isDev = !app.isPackaged;
   if (isDev) {

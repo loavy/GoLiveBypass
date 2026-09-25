@@ -6,6 +6,31 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Estabilidade da GUI e saída sem bandeja
+
+- Ativação/desativação mantém a ação bloqueada até a operação terminar, mesmo ao receber atualizações de status. Cliques repetidos não enfileiram novas ativações; falhas liberam a tentativa seguinte.
+- Respostas antigas de consultas de status não sobrescrevem o estado mais recente. O encerramento da medição Proton continua liberando os controles em sucesso, falha e cancelamento.
+- Configurações inclui “Sair do GoLiveBypass”, usando o mesmo encerramento com restauração da rede já usado pela bandeja. Cliques repetidos em Sair são ignorados.
+- Regressão Electron cobre inicialização com rota manual, concorrência de status/ativação, recuperação após falha e saída sem bandeja. Alterações na GUI Windows/Linux; não alteram roteamento do plugin/standalone nem tornam probes de HTTP/IP bloqueantes.
+- O usuário confirmou mídia funcionando e mensagens recuperadas ao mudar manualmente a saída Proton após HTTP 403/code 40333. Não foi implantada troca de rota automática baseada nesse erro externo.
+
+### Fedora: Vesktop Flatpak e build local
+
+- Corrigido o bloqueio permanente de “Ativar Bypass” após medir rotas Proton: o estado de otimização é liberado no encerramento, inclusive em falha/cancelamento, antes de recalcular a disponibilidade da ação. Aplica-se à GUI Windows/Linux; não altera os controladores do plugin/standalone.
+- Removido o atalho do servidor Discord no canto inferior direito da GUI.
+- A seleção do PID Flatpak examina todas as instâncias do mesmo app antes de concluir que o cliente está fora do namespace. Zypak cria uma instância auxiliar/zygote em outra rede e pode listá-la primeiro; isso fazia a ativação fechar o Vesktop que já tinha aberto, com erro de inicialização. PIDs zero/transitórios são ignorados; a prova de namespace continua obrigatória.
+- Reproduzido com Vesktop 1.6.7/Flatpak 1.18.2 no Fedora: a primeira instância estava em outro namespace, enquanto a correção encontrou a instância no namespace de teste. O teste usou uma rede isolada sem WireGuard, não comprova transmissão/call real. Windows não usa essa seleção; o plugin Linux possui controlador próprio e não chama `flatpak_pid_for_id`. A CLI standalone continua pausada; a correção fica no motor shell compartilhado usado pela GUI.
+- `npm run build:local` gera AppImage/EXE em `dist-app/local`, com marca de build local e sem updater remoto, para impedir a substituição das correções por uma release oficial. Preferências e canais das builds oficiais são preservados.
+
+### GUI: interface, desempenho e segurança
+
+- Nova paleta clara/escura, cartões com melhor espaçamento, título da ação principal, foco de teclado e contraste dos links; altura da janela limitada à área útil do monitor.
+- Fontes locais, iluminação estática e animação do ícone em CSS respeitando movimento reduzido. Removido GSAP; o bundle principal passou de 130,34 kB para 59,91 kB na compilação local. Logs e pedidos de ajuste de janela são agrupados por frame.
+- Janelas principal e de logs passam a usar sandbox, isolamento de contexto e bridge restrita, sem Node.js na página. IPC valida a janela, o documento e o frame de origem; navegação, webviews e permissões são bloqueados. Links externos usam uma lista explícita de hosts HTTPS.
+- CSP local impede scripts inline, frames e conexões diretas do renderer em produção. O link retornado pelo relato de bug usa DOM seguro; copiar diagnóstico continua disponível por IPC específico. Arrastar arquivos usa `webUtils.getPathForFile` no preload isolado.
+- Dependências vulneráveis de GUI/site atualizadas; helper Proton usa `golang.org/x/crypto` v0.56.0. Teste de instalação simulada com pacman agora independe da distribuição do host.
+- Validação visual automatizada em `golive-gui/scripts/ui-smoke.cjs`, com backend simulado e perfil temporário. Sem mudanças de roteamento no plugin/standalone; o helper Go atualizado é compartilhado. Escopo, evidências e limites em [revisão de segurança](docs/security-review-2026-09-24.md).
+
 ## [2.0.6] - 2026-09-18
 
 ### Devlog da release estável
